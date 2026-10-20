@@ -7,7 +7,7 @@ use rolldown_utils::{
 };
 
 use super::module_id::ModuleId;
-use crate::{ModuleDefFormat, PackageJson, side_effects::HookSideEffects};
+use crate::{ImportAttributes, ModuleDefFormat, PackageJson, side_effects::HookSideEffects};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ResolvedExternal {
@@ -47,9 +47,31 @@ pub struct ResolvedId {
   pub package_json: Option<Arc<PackageJson>>,
   pub side_effects: Option<HookSideEffects>,
   pub is_external_without_side_effects: bool,
+  /// The import attributes that are part of the module identity. Always empty unless
+  /// `experimental.importAttributes` is enabled.
+  pub attributes: ImportAttributes,
 }
 
 impl ResolvedId {
+  /// Finishes a resolution: the attributes the import resolved with become part of the module
+  /// id when `experimental.importAttributes` is enabled, and are dropped otherwise.
+  #[must_use]
+  pub fn finalize_attributes(mut self, import_attributes_enabled: bool) -> Self {
+    let attributes = std::mem::take(&mut self.attributes);
+    if import_attributes_enabled { self.with_attributes(attributes) } else { self }
+  }
+
+  /// Makes `attributes` part of the module id, replacing the ones it had.
+  /// See internal-docs/import-attributes/implementation.md
+  #[must_use]
+  pub fn with_attributes(mut self, attributes: ImportAttributes) -> Self {
+    if !attributes.is_empty() || !self.attributes.is_empty() {
+      self.id = ModuleId::with_attributes(self.id.raw_id(), &attributes);
+    }
+    self.attributes = attributes;
+    self
+  }
+
   /// Create a dummy ResolvedId, which is not exists in the file system
   /// note: A dummy `ResolvedId` usually used with `DUMMY_MODULE_IDX`
   pub fn make_dummy() -> Self {
@@ -61,6 +83,7 @@ impl ResolvedId {
       package_json: None,
       side_effects: None,
       is_external_without_side_effects: false,
+      attributes: ImportAttributes::default(),
     }
   }
 
@@ -88,6 +111,7 @@ impl ResolvedId {
       package_json: None,
       side_effects: None,
       is_external_without_side_effects: true,
+      attributes: ImportAttributes::default(),
     }
   }
 }
